@@ -1,0 +1,106 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+repositories {
+    google()
+    mavenCentral()
+}
+
+def keystoreProperties = new Properties()
+rootProject.file("keystore.properties").withInputStream { keystoreProperties.load(it) }
+
+def oktaProperties = new Properties()
+rootProject.file("okta.properties").withInputStream { oktaProperties.load(it) }
+
+android {
+    namespace 'in.demesne.classic.credentialmanager'
+    compileSdk 36
+    defaultConfig {
+        applicationId "in.demesne.classic.credentialmanager"
+        minSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        vectorDrawables {
+            useSupportLibrary true
+        }
+        buildConfigField "String", 'ISSUER', "\"${oktaProperties.getProperty('issuer')}\""
+        buildConfigField "String", 'CLIENT_ID', "\"${oktaProperties.getProperty('clientId')}\""
+        buildConfigField "String", 'SIGN_IN_REDIRECT_URI', "\"${oktaProperties.getProperty('signInRedirectUri')}\""
+    }
+    signingConfigs {
+        config {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+    buildTypes {
+        release {
+            applicationIdSuffix ".release"
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.config
+        }
+        debug {
+            signingConfig signingConfigs.config
+        }
+    }
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/*', '/META-INF/{AL2.0,LGPL2.1}', 'META-INF/versions/9/OSGI-INF/MANIFEST.MF']
+            pickFirsts += ['META-INF/okta/version.properties']
+        }
+    }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.4.2"
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.navigation:navigation-fragment-ktx:2.7.3'
+    implementation 'androidx.navigation:navigation-ui-ktx:2.7.3'
+
+    implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
+    implementation 'androidx.credentials:credentials:1.5.0'
+
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.2'
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.6.2"
+
+    // okta
+    implementation('com.okta.kotlin:auth-foundation:2.0.3')
+    implementation('com.okta.kotlin:oauth2:2.0.3')
+    implementation('com.okta.authn.sdk:okta-authn-sdk-api:2.0.11')
+    implementation('com.okta.authn.sdk:okta-authn-sdk-impl:2.0.11') {
+        exclude group: "com.okta.sdk", module: "okta-sdk-httpclient"
+        exclude group: "org.bouncycastle"
+    }
+    implementation('com.okta.commons:okta-http-okhttp:2.0.1')
+//    implementation('com.okta.sdk:okta-sdk-api:21.0.0')
+//    runtimeOnly('com.okta.sdk:okta-sdk-impl:21.0.0')
+}
