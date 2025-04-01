@@ -1,7 +1,9 @@
 package `in`.demesne.classic.credentialmanager
 
 import android.app.Activity
+import android.content.ComponentName
 import android.util.Base64
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
@@ -28,6 +30,8 @@ class SignInViewModel : ViewModel() {
     private lateinit var authenticationClient: AuthenticationClient
 
     fun login(activity: Activity, username: String, password: String) {
+        Log.i("SignInViewModel", "Trying login")
+
         val orgUrl = BuildConfig.ISSUER.toHttpUrl().newBuilder().encodedPath("/").build().toString()
         authenticationClient = AuthenticationClients.builder().setOrgUrl(orgUrl).build()
         viewModelScope.launch(Dispatchers.IO) {
@@ -49,14 +53,23 @@ class SignInViewModel : ViewModel() {
     }
 
     private fun initiatePasskeyChallenge(activity: Activity, stateToken: String) {
+        Log.i("SignInViewModel", "Trying initiatePasskeyChallenge")
+
         try {
             authenticationClient.verifyFactor(
                 "webauthn", stateToken, object : AuthenticationStateHandlerAdapter() {
                     override fun handleUnknown(mfaResponse: AuthenticationResponse) {
                         val embedded = mfaResponse.embedded
                         val challenge = embedded["challenge"] as LinkedHashMap<*, *>
+                        val factors = embedded["factors"] as List<LinkedHashMap<*, *>>
+                        val credentialIds =
+                            factors.map { (it["profile"] as LinkedHashMap<*, *>)["credentialId"] as String }
+                        Log.i("SignInViewModel", "Collected credentialIds: $credentialIds")
                         validateChallengeUsingSystem(
-                            activity, challenge["challenge"] as String, mfaResponse.stateToken
+                            activity,
+                            challenge["challenge"] as String,
+                            mfaResponse.stateToken,
+                            credentialIds
                         )
                     }
                 })
@@ -66,14 +79,23 @@ class SignInViewModel : ViewModel() {
     }
 
     private fun validateChallengeUsingSystem(
-        activity: Activity, challenge: String, stateToken: String
+        activity: Activity, challenge: String, stateToken: String, credentialIds: List<String>
     ) {
+        Log.i("SignInViewModel", "Trying validateChallengeUsingSystem")
+
         try {
-            val getCredentialRequest = configureGetCredentialRequest(activity, challenge)
+            val getCredentialRequest =
+                configureGetCredentialRequest(activity, challenge, credentialIds)
+
+            Log.i(
+                "SignInViewModel",
+                "GetCredentialRequest: ${getCredentialRequest.credentialOptions}"
+            )
             viewModelScope.launch(Dispatchers.IO) {
                 val data = getSavedCredentials(activity, getCredentialRequest)
                 data?.let {
-                    validatePasskeyOnServer(activity, data, stateToken, challenge)
+                    Log.i("SignInViewModel", "Received data: $data")
+                    validatePasskeyOnServer(data, stateToken)
                 }
             }
         } catch (e: Exception) {
@@ -82,11 +104,11 @@ class SignInViewModel : ViewModel() {
     }
 
     private fun validatePasskeyOnServer(
-        activity: Activity,
         data: String,
         stateToken: String,
-        challenge: String
     ) {
+        Log.i("SignInViewModel", "Trying validatePasskeyOnServer")
+
         try {
             val response: JSONObject = JSONObject(data).getJSONObject("response")
 
@@ -94,43 +116,6 @@ class SignInViewModel : ViewModel() {
             val signature = response.getString("signature")
             var clientData = response.getString("clientDataJSON")
 
-            // Modify the clientDataJSON to replace the origin
-            val clientDataJSON = JSONObject(String(Base64.decode(clientData, Base64.DEFAULT)))
-            clientDataJSON.put("origin", "https://classic.demesne.in")
-            clientDataJSON.put("crossOrigin", false)
-            clientData = getEncodedChallenge(clientDataJSON.toString().toByteArray(Charsets.UTF_8))
-
-//        val jsonObject = JSONObject().apply {
-//            put("stateToken", stateToken)
-//            put("clientData", clientData)
-//            put("signatureData", signature)
-//            put("authenticatorData", authenticatorData)
-//        }
-//
-//        val json = jsonObject.toString()
-//
-//        val client = OkHttpClient()
-//        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-//        val body = json.toRequestBody(mediaType)
-//        val request = Request.Builder()
-//            .url("https://classic.demesne.in/api/v1/authn/factors/webauthn/verify")
-//            .post(body)
-//            .addHeader("Content-Type", "application/json")
-//            .build()
-//
-//        client.newCall(request).execute().use { response ->
-//            if (!response.isSuccessful) throw IOException("Unexpected code $response")
-//
-//            // Handle the response
-//            val responseBody = response.body?.string()
-//            if (responseBody != null) {
-//                val jsonResponse = JSONObject(responseBody)
-//                // Process the JSON response as needed
-//                _state.postValue(SessionTokenState.Token)
-//            } else {
-//                _state.postValue(SessionTokenState.Error("Empty response body"))
-//            }
-//        }
             val request = authenticationClient.instantiate(WebAuthnVerifyFactorRequest::class.java)
             request.apply {
                 put("stateToken", stateToken)
@@ -138,6 +123,8 @@ class SignInViewModel : ViewModel() {
                 put("signatureData", signature)
                 put("authenticatorData", authenticatorData)
             }
+
+            Log.i("SignInViewModel", "Sending WebAuthn verify factor request: $request")
 
             authenticationClient.verifyFactor(
                 "webauthn",
@@ -158,16 +145,25 @@ class SignInViewModel : ViewModel() {
     }
 
     private fun configureGetCredentialRequest(
-        activity: Activity, challenge: String
+        activity: Activity, challenge: String, credentialIds: List<String>
     ): GetCredentialRequest {
+        val allowedCredentials = credentialIds.map { credentialId ->
+            ComponentName(activity.packageName, credentialId)
+        }.toSet()
         val getPublicKeyCredentialOption =
-            GetPublicKeyCredentialOption(fetchAuthJsonFromServer(activity, challenge), null)
-        val getCredentialRequest = GetCredentialRequest(
-            listOf(
-                getPublicKeyCredentialOption
+            GetPublicKeyCredentialOption(
+                fetchAuthJsonFromServer(activity, challenge),
+                activity.packageName.toByteArray()
+//                allowedCredentials
             )
+
+        Log.i(
+            "SignInViewModel",
+            "GetPublicKeyCredentialOption: ${getPublicKeyCredentialOption.requestJson}"
         )
-        return getCredentialRequest
+        return GetCredentialRequest(
+            listOf(getPublicKeyCredentialOption)
+        )
     }
 
     private suspend fun getSavedCredentials(
@@ -216,5 +212,3 @@ class SignInViewModel : ViewModel() {
         return Base64.decode(base64UrlSafeToBase64(str), Base64.DEFAULT)
     }
 }
-
-

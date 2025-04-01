@@ -11,6 +11,8 @@ import `in`.demesne.classic.credentialmanager.R.id
 import `in`.demesne.classic.credentialmanager.SignInFragment.SignInFragmentCallback
 import `in`.demesne.classic.credentialmanager.SignUpFragment.SignUpFragmentCallback
 import `in`.demesne.classic.credentialmanager.databinding.ActivityMainBinding
+import android.content.Intent
+import android.net.Uri
 
 class MainActivity : AppCompatActivity(), MainFragmentCallback, HomeFragmentCallback,
     SignInFragmentCallback, SignUpFragmentCallback {
@@ -30,6 +32,10 @@ class MainActivity : AppCompatActivity(), MainFragmentCallback, HomeFragmentCall
         } else {
             loadMainFragment()
         }
+        // ATTENTION: This was auto-generated to handle app links.
+        val appLinkIntent: Intent = intent
+        val appLinkAction: String? = appLinkIntent.action
+        val appLinkData: Uri? = appLinkIntent.data
     }
 
     override fun signup() {

@@ -19,7 +19,7 @@ android {
     defaultConfig {
         applicationId "in.demesne.classic.credentialmanager"
         minSdk 34
-        versionCode 1
+        versionCode 3
         versionName "1.0"
 
         vectorDrawables {
@@ -30,11 +30,17 @@ android {
         buildConfigField "String", 'SIGN_IN_REDIRECT_URI', "\"${oktaProperties.getProperty('signInRedirectUri')}\""
     }
     signingConfigs {
-        config {
+        release {
             keyAlias keystoreProperties['keyAlias']
             keyPassword keystoreProperties['keyPassword']
-            storeFile file(keystoreProperties['storeFile'])
+            storeFile file(System.getenv('HOME') + '/.android/release.keystore')
             storePassword keystoreProperties['storePassword']
+        }
+        debug {
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+            storeFile file(System.getenv('HOME') + '/.android/debug.keystore')
+            storePassword 'android'
         }
     }
     buildTypes {
@@ -42,10 +48,11 @@ android {
             applicationIdSuffix ".release"
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.config
+            signingConfig signingConfigs.release
         }
         debug {
-            signingConfig signingConfigs.config
+            applicationIdSuffix ".debug"
+            signingConfig signingConfigs.debug
         }
     }
     buildFeatures {
