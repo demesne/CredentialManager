@@ -16,7 +16,7 @@
 
 <resources>
     <!-- Base application theme. -->
-    <style name="Theme.CredentialManagerSample" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.CredentialManager" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Primary brand color. -->
         <item name="colorPrimary">@color/pink_500</item>
         <item name="colorPrimaryVariant">@color/pink_700</item>
