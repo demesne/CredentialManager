@@ -1,8 +1,6 @@
 package `in`.demesne.classic.credentialmanager
 
 import android.app.Activity
-import android.content.ComponentName
-import android.util.Base64
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -21,6 +19,7 @@ import com.okta.authn.sdk.resource.WebAuthnVerifyFactorRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
 import org.json.JSONObject
 
 class SignInViewModel : ViewModel() {
@@ -59,17 +58,10 @@ class SignInViewModel : ViewModel() {
             authenticationClient.verifyFactor(
                 "webauthn", stateToken, object : AuthenticationStateHandlerAdapter() {
                     override fun handleUnknown(mfaResponse: AuthenticationResponse) {
-                        val embedded = mfaResponse.embedded
-                        val challenge = embedded["challenge"] as LinkedHashMap<*, *>
-                        val factors = embedded["factors"] as List<LinkedHashMap<*, *>>
-                        val credentialIds =
-                            factors.map { (it["profile"] as LinkedHashMap<*, *>)["credentialId"] as String }
-                        Log.i("SignInViewModel", "Collected credentialIds: $credentialIds")
                         validateChallengeUsingSystem(
                             activity,
-                            challenge["challenge"] as String,
+                            constructChallenge(mfaResponse),
                             mfaResponse.stateToken,
-                            credentialIds
                         )
                     }
                 })
@@ -78,19 +70,49 @@ class SignInViewModel : ViewModel() {
         }
     }
 
-    private fun validateChallengeUsingSystem(
-        activity: Activity, challenge: String, stateToken: String, credentialIds: List<String>
-    ) {
-        Log.i("SignInViewModel", "Trying validateChallengeUsingSystem")
+    private fun constructChallenge(mfaResponse: AuthenticationResponse): String {
+        val embedded = JSONObject(mfaResponse.embedded)
+        val factorsArray = embedded.getJSONArray("factors")
+        val credentialIds = mutableListOf<String>()
 
-        try {
-            val getCredentialRequest =
-                configureGetCredentialRequest(activity, challenge, credentialIds)
-
-            Log.i(
-                "SignInViewModel",
-                "GetCredentialRequest: ${getCredentialRequest.credentialOptions}"
+        for (i in 0 until factorsArray.length()) {
+            credentialIds.add(
+                factorsArray.getJSONObject(i).getJSONObject("profile").getString("credentialId")
             )
+        }
+        var challenge = embedded.getJSONObject("challenge").getString("challenge")
+
+        val allowCredentialsJson = JSONArray().apply {
+            credentialIds.forEach { id ->
+                put(JSONObject().apply {
+                    put("type", "public-key")
+                    put("id", id)
+                })
+            }
+        }
+
+        val response = JSONObject().apply {
+            put("challenge", challenge)
+            put("allowCredentials", allowCredentialsJson)
+            put("timeout", 60000)
+            put("userVerification", "preferred")
+            put("rpId", "classic.demesne.in")
+        }.toString()
+
+        Log.i("SignInViewModel", "Challenge request : $response")
+
+        return response
+    }
+
+    private fun validateChallengeUsingSystem(
+        activity: Activity, challenge: String, stateToken: String
+    ) {
+        Log.i("SignInViewModel", "Validating challenge using system. Request: $challenge")
+        try {
+            val getCredentialRequest = GetCredentialRequest(
+                listOf(GetPublicKeyCredentialOption(challenge))
+            )
+
             viewModelScope.launch(Dispatchers.IO) {
                 val data = getSavedCredentials(activity, getCredentialRequest)
                 data?.let {
@@ -100,6 +122,7 @@ class SignInViewModel : ViewModel() {
             }
         } catch (e: Exception) {
             _state.postValue(SessionTokenState.Error(e.message.toString()))
+            Log.e("SignInViewModel", "Error validating challenge: ${e.message}")
         }
     }
 
@@ -144,28 +167,6 @@ class SignInViewModel : ViewModel() {
         }
     }
 
-    private fun configureGetCredentialRequest(
-        activity: Activity, challenge: String, credentialIds: List<String>
-    ): GetCredentialRequest {
-        val allowedCredentials = credentialIds.map { credentialId ->
-            ComponentName(activity.packageName, credentialId)
-        }.toSet()
-        val getPublicKeyCredentialOption =
-            GetPublicKeyCredentialOption(
-                fetchAuthJsonFromServer(activity, challenge),
-                activity.packageName.toByteArray()
-//                allowedCredentials
-            )
-
-        Log.i(
-            "SignInViewModel",
-            "GetPublicKeyCredentialOption: ${getPublicKeyCredentialOption.requestJson}"
-        )
-        return GetCredentialRequest(
-            listOf(getPublicKeyCredentialOption)
-        )
-    }
-
     private suspend fun getSavedCredentials(
         activity: Activity, getCredentialRequest: GetCredentialRequest
     ): String? {
@@ -184,31 +185,5 @@ class SignInViewModel : ViewModel() {
             return cred.authenticationResponseJson
         }
         return null
-    }
-
-    private fun fetchAuthJsonToServer(activity: Activity, challenge: String): String {
-        return activity.readFromAsset("AuthToServer").replace("<challenge>", challenge)
-    }
-
-    private fun fetchAuthJsonFromServer(activity: Activity, challenge: String): String {
-        return activity.readFromAsset("AuthFromServer").replace("<challenge>", challenge)
-    }
-
-    private fun getEncodedChallenge(challenge: ByteArray): String {
-        return Base64.encodeToString(
-            challenge, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING
-        )
-    }
-
-    private fun base64UrlSafeToBase64(str: String): String {
-        return str.replace("_", "/").replace("-", "+")
-    }
-
-    fun binToStr(bin: ByteArray): String {
-        return Base64.encodeToString(bin, Base64.NO_WRAP)
-    }
-
-    private fun strToBin(str: String): ByteArray {
-        return Base64.decode(base64UrlSafeToBase64(str), Base64.DEFAULT)
     }
 }
